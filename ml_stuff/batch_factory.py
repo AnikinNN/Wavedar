@@ -7,6 +7,7 @@ from torch.autograd import Variable
 
 from . batch_generator import WaveDataset
 from . gpu_augmenter import Augmenter
+from . positional_encoding import SinusoidalPositionalEmbedding
 
 
 class ThreadKiller:
@@ -21,7 +22,7 @@ class ThreadKiller:
         self.to_kill = to_kill
 
 
-def threaded_batches_feeder(to_kill, target_queue, dataset_generator):
+def threaded_batches_feeder(to_kill: ThreadKiller, target_queue: Queue, dataset_generator: WaveDataset):
     """
     takes batch from dataset_generator and put to target_queue until to_kill
     """
@@ -32,7 +33,8 @@ def threaded_batches_feeder(to_kill, target_queue, dataset_generator):
             return
 
 
-def threaded_cuda_feeder(to_kill, target_queue, source_queue, cuda_device, to_variable, do_augment):
+def threaded_cuda_feeder(to_kill: ThreadKiller, target_queue: Queue, source_queue: Queue,
+                         cuda_device, to_variable: bool, do_augment: bool, encoder: SinusoidalPositionalEmbedding):
     """
     takes batch from source_queue, transforms data to tensors, puts to target_queue until to_kill
     """
@@ -45,18 +47,21 @@ def threaded_cuda_feeder(to_kill, target_queue, source_queue, cuda_device, to_va
         batch.images = ToCartesianConverter.__call__(batch.images)
         mask = WaveMask.get_mask(batch.images)
         assert mask is not None
+        # todo implement setter for positional_encoding
+        batch.positional_encoding = encoder.encode(batch.images)
         batch.set_mask(mask)
 
         if do_augment:
-            batch.images = Augmenter.call(batch)
-        else:
-            batch.images = batch.images * batch.masks
+            batch.images, batch.masks, batch.positional_encoding = Augmenter.call(batch)
+
+        batch.images = batch.images * batch.masks
+        batch.images = torch.cat((batch.images, batch.positional_encoding), dim=1)
         target_queue.put(batch, block=True)
     print('cuda_feeder_killed')
     return
 
 
-def threaded_cuda_augmenter(to_kill, target_queue, source_queue, do_augment):
+def threaded_cuda_augmenter(to_kill: ThreadKiller, target_queue: Queue, source_queue: Queue, do_augment: bool):
     """
     takes batch from source_queue, applies augmentations if do_augment, applies mask, puts to target_queue until to_kill
     """
@@ -127,6 +132,7 @@ class BatchFactory:
                  preprocess_worker_number: int = 4,
                  cuda_feeder_number: int = 1,
                  to_variable: bool = True,
+                 encoder_dimension: int = 3,
                  ):
         self.cpu_queue = Queue(maxsize=cpu_queue_length)
         self.cuda_queue = Queue(maxsize=cuda_queue_length)
@@ -139,6 +145,9 @@ class BatchFactory:
         self.cuda_feeders = []
         self.preprocess_workers = []
 
+        # create one encoder for all threads
+        encoder = SinusoidalPositionalEmbedding(encoder_dimension)
+
         for _ in range(cuda_feeder_number):
             thr = threading.Thread(target=threaded_cuda_feeder,
                                    args=(self.threads_killer,
@@ -146,7 +155,8 @@ class BatchFactory:
                                          self.cpu_queue,
                                          cuda_device,
                                          to_variable,
-                                         do_augment)
+                                         do_augment,
+                                         encoder)
                                    )
             thr.start()
             self.cuda_feeders.append(thr)

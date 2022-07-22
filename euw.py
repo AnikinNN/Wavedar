@@ -17,11 +17,11 @@ from tqdm import tqdm, trange
 
 plt.rcParams['figure.dpi'] = 200
 
-mdl = MetadataLoader.init_using_data_dir('/storage/kubrick/suslovai/DATA/input_nn/')
-dataset = WaveDataset(mdl.train)
+loader = MetadataLoader((('./fake_csv.csv', './fake_npy.npy'), ))
+dataset = WaveDataset(loader.test)
 
 factory = BatchFactory(dataset=dataset,
-                       cuda_device='cuda:2',
+                       cuda_device='cuda:1',
                        do_augment=True,
                        )
 

@@ -25,7 +25,7 @@ class SinusoidalPositionalEmbedding:
 
         if self.cache.shape != encoding_shape:
             with self.lock:
-                encoding = torch.zeros(encoding_shape)
+                encoding = torch.zeros(encoding_shape, device=batch.get_device())
                 for spatial_dimension_i, spatial_dimension_len in enumerate(data_shape):
                     # x.shape == [spatial_dimension_len]
                     x = torch.arange(spatial_dimension_len, device=batch.get_device()).float()

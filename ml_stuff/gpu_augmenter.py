@@ -25,7 +25,7 @@ class Resizer:
 class Sampler:
     def __init__(self):
         # affine numbers
-        self.rotation_angle = self.sampler(10)
+        self.rotation_angle = self.sampler(10) + np.random.choice([0, 180])
         self.scale = self.sampler(0.05, 1)
         self.translation_x = self.sampler(0.2)
         self.translation_y = self.sampler(0.2)
@@ -54,8 +54,8 @@ class Augmenter:
     resizer = Resizer()
 
     @classmethod
-    def augment(cls, images: torch.Tensor, is_mask: bool, sampler: Sampler):
-        if not is_mask:
+    def augment(cls, images: torch.Tensor, only_geometry: bool, sampler: Sampler):
+        if not only_geometry:
             # add noise
             # add noize without normalization because it is followed by normalization
             noise_shape = [int(i * sampler.noise_scale) for i in images.shape[2:]]
@@ -78,7 +78,7 @@ class Augmenter:
         if sampler.flip_lr > 0.5:
             images = torch.flip(images, dims=[2])
 
-        if not is_mask:
+        if not only_geometry:
             # normalize
             images = cls.normalizer(images)
         return images
@@ -88,7 +88,8 @@ class Augmenter:
         sampler = Sampler()
         images = cls.augment(batch.images, False, sampler)
         masks = cls.augment(batch.masks, True, sampler)
-        return images * masks
+        positional_encoding = cls.augment(batch.positional_encoding, True, sampler)
+        return images, masks, positional_encoding
 
     @classmethod
     def call(cls, batch: Batch):

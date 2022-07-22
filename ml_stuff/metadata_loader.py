@@ -38,7 +38,6 @@ class MetadataLoader:
             self.extend_all(df)
             self.npy_paths.append(npy)
 
-
     @staticmethod
     def find_dataset(data_dir):
         files = []
