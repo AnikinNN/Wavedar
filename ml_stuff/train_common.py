@@ -1,5 +1,3 @@
-import traceback
-import logging
 import warnings
 
 import numpy as np
@@ -11,13 +9,13 @@ from torch.nn import MSELoss
 from tqdm import tqdm
 from queue import Queue
 
-from regressor_on_resnet.flux_dataset import FluxDataset
-from regressor_on_resnet.nn_logging import Logger
-from regressor_on_resnet.sgdr_restarts_warmup import CosineAnnealingWarmupRestarts
-from regressor_on_resnet.batch_factory import BatchFactory
-from regressor_on_resnet.gpu_augmenter import Augmenter
-from regressor_on_resnet.weighted_mse import WeightedMse, get_weights_and_bounds
-from regressor_on_resnet.resnet_regressor import ResnetRegressor
+from .batch_generator import WaveDataset
+from .nn_logging import Logger
+from .sgdr_restarts_warmup import CosineAnnealingWarmupRestarts
+from .batch_factory import BatchFactory
+from .gpu_augmenter import Augmenter
+from .weighted_mse import WeightedMse, get_weights_and_bounds
+from .resnet_regressor import ResnetRegressor
 
 
 def train_single_epoch(model: torch.nn.Module,
@@ -40,14 +38,14 @@ def train_single_epoch(model: torch.nn.Module,
     for batch_idx in range(per_step_epoch):
         batch = cuda_batches_queue.get(block=True)
 
-        if batch_idx == 0:
-            logger.store_batch_as_image('train_batch', batch.images,
-                                        global_step=current_epoch,
-                                        inv_normalizer=Augmenter.inv_normalizer)
+        # if batch_idx == 0:
+        #     logger.store_batch_as_image('train_batch', batch.images,
+        #                                 global_step=current_epoch,
+        #                                 inv_normalizer=Augmenter.inv_normalizer)
 
         optimizer.zero_grad()
-        data_out = model(batch.images, batch.elevations)
-        loss = loss_function(data_out, batch.fluxes, batch.hard_mining_weights)
+        data_out = model(batch.images)
+        loss = loss_function(data_out, batch.significant_wave_height)
         loss_values.append(loss.item())
 
         loss_tb.append(loss.item())
@@ -87,14 +85,14 @@ def validate_single_epoch(model: torch.nn.Module,
         batch = cuda_batches_queue.get(block=True)
 
         with torch.no_grad():
-            data_out = model(batch.images, batch.elevations)
+            data_out = model(batch.images)
 
-        if batch_idx == 0:
-            logger.store_batch_as_image('val_batch', batch.images,
-                                        global_step=current_epoch,
-                                        inv_normalizer=Augmenter.inv_normalizer)
+        # if batch_idx == 0:
+        #     logger.store_batch_as_image('val_batch', batch.images,
+        #                                 global_step=current_epoch,
+        #                                 inv_normalizer=Augmenter.inv_normalizer)
 
-        loss = loss_function(data_out, batch.fluxes)
+        loss = loss_function(data_out, batch.significant_wave_height)
         loss_values.append(loss.item())
         pbar.update()
         pbar.set_postfix({'loss': loss.item(), 'cuda_queue_len': cuda_batches_queue.qsize()})
@@ -104,8 +102,8 @@ def validate_single_epoch(model: torch.nn.Module,
 
 
 def calculate_hard_mining_weights(model: torch.nn.Module,
-                                  train_dataset: FluxDataset,
-                                  hard_mining_dataset: FluxDataset,
+                                  train_dataset: WaveDataset,
+                                  hard_mining_dataset: WaveDataset,
                                   cuda_batches_queue: Queue,
                                   logger: Logger,
                                   epoch: int
@@ -137,11 +135,11 @@ def calculate_hard_mining_weights(model: torch.nn.Module,
 
 
 def train_model(model: ResnetRegressor,
-                train_dataset: FluxDataset,
-                val_dataset: FluxDataset,
-                hard_mining_dataset: FluxDataset,
+                train_dataset: WaveDataset,
+                val_dataset: WaveDataset,
                 logger: Logger,
                 cuda_device,
+                encoder_dimension: int,
                 learning_rate=5e-4,
                 static_learning_rate=False,
                 max_epochs=480,
@@ -149,10 +147,9 @@ def train_model(model: ResnetRegressor,
                 steps_per_epoch_train=1536,
                 steps_per_epoch_valid=1024,
                 train_convolutional_since_epoch=None,
+
                 ):
     mse = MSELoss()
-    weights, bounds = get_weights_and_bounds(train_dataset.wave_frame['CM3up[W/m2]'].to_numpy())
-    weighted_mse = WeightedMse(weights, bounds)
     optimizer = torch.optim.Adam(model.parameters(), lr=learning_rate)
     # lr_scheduler.step() calls every batch
     if static_learning_rate:
@@ -169,19 +166,16 @@ def train_model(model: ResnetRegressor,
 
     train_batch_factory = BatchFactory(train_dataset,
                                        cuda_device,
+                                       encoder_dimension=encoder_dimension,
                                        do_augment=True,
-                                       preprocess_worker_number=15,
+                                       preprocess_worker_number=4,
                                        to_variable=True)
     validation_batch_factory = BatchFactory(val_dataset,
                                             cuda_device,
+                                            encoder_dimension=encoder_dimension,
                                             do_augment=False,
-                                            preprocess_worker_number=15,
+                                            preprocess_worker_number=4,
                                             to_variable=False)
-    hard_mining_batch_factory = BatchFactory(hard_mining_dataset,
-                                             cuda_device,
-                                             do_augment=False,
-                                             preprocess_worker_number=15,
-                                             to_variable=False)
 
     best_val_loss = float('Inf')
     best_val_epoch = -1
@@ -196,7 +190,7 @@ def train_model(model: ResnetRegressor,
 
             train_loss = train_single_epoch(model,
                                             optimizer,
-                                            weighted_mse,
+                                            mse,
                                             train_batch_factory.cuda_queue,
                                             steps_per_epoch_train,
                                             current_epoch=epoch,
@@ -223,22 +217,12 @@ def train_model(model: ResnetRegressor,
                 best_val_loss = val_loss
                 best_val_epoch = epoch
 
-            # every single pass of whole dataset, not at epoch == 0
-            if epoch % int(len(train_dataset) / train_dataset.batch_size / steps_per_epoch_train + 1) == 0 and epoch:
-                calculate_hard_mining_weights(model,
-                                              train_dataset,
-                                              hard_mining_dataset,
-                                              hard_mining_batch_factory.cuda_queue,
-                                              logger,
-                                              epoch)
-
     except KeyboardInterrupt:
         pass
 
     finally:
         for i in (
                 train_batch_factory,
-                hard_mining_batch_factory,
                 validation_batch_factory,):
             i.stop()
 

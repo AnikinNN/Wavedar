@@ -29,6 +29,9 @@ class WaveDataset:
         self.batch = Batch()
         self.npys = {}
 
+        self.significant_wave_height_mean = wave_frame.h.mean()
+        self.significant_wave_height_std = wave_frame.h.std()
+
     def __len__(self):
         return self.wave_frame.shape[0]
 

@@ -47,15 +47,17 @@ def threaded_cuda_feeder(to_kill: ThreadKiller, target_queue: Queue, source_queu
         batch.images = ToCartesianConverter.__call__(batch.images)
         mask = WaveMask.get_mask(batch.images)
         assert mask is not None
-        # todo implement setter for positional_encoding
-        batch.positional_encoding = encoder.encode(batch.images)
+        positional_encoding = encoder.encode(batch.images)
+
         batch.set_mask(mask)
 
         if do_augment:
-            batch.images, batch.masks, batch.positional_encoding = Augmenter.call(batch)
+            batch.images, batch.masks = Augmenter.call(batch)
+
+        batch.images = Augmenter.normalizer(batch.images)
 
         batch.images = batch.images * batch.masks
-        batch.images = torch.cat((batch.images, batch.positional_encoding), dim=1)
+        batch.images = torch.cat((batch.images, positional_encoding), dim=1)
         target_queue.put(batch, block=True)
     print('cuda_feeder_killed')
     return
@@ -75,8 +77,8 @@ def threaded_cuda_augmenter(to_kill: ThreadKiller, target_queue: Queue, source_q
 
 
 class ToCartesianConverter:
-    xx_target, yy_target = np.meshgrid(np.linspace(0, 1, 512, dtype='float32'),
-                                       np.linspace(-1, 1, 1024, dtype='float32'))
+    xx_target, yy_target = np.meshgrid(np.linspace(0, 1, 480, dtype='float32'),
+                                       np.linspace(-1, 1, 960, dtype='float32'))
 
     # avoid division by zero at tan calc
     tan = yy_target / np.where(xx_target == 0.0, 1, xx_target)
@@ -91,7 +93,7 @@ class ToCartesianConverter:
     @classmethod
     def __call__(cls, tensor_data: torch.Tensor):
         grid = cls.grid.expand(tensor_data.shape[0], -1, -1, -1).to(tensor_data.get_device()).float()
-        res = torch.nn.functional.grid_sample(tensor_data, grid, padding_mode="zeros")
+        res = torch.nn.functional.grid_sample(tensor_data, grid, padding_mode="zeros", mode='bilinear')
         return torch.rot90(res, 1, [2, 3])
 
 
@@ -127,12 +129,12 @@ class BatchFactory:
                  dataset: WaveDataset,
                  cuda_device,
                  do_augment: bool,
+                 encoder_dimension: int,
                  cpu_queue_length: int = 4,
                  cuda_queue_length: int = 4,
                  preprocess_worker_number: int = 4,
                  cuda_feeder_number: int = 1,
                  to_variable: bool = True,
-                 encoder_dimension: int = 3,
                  ):
         self.cpu_queue = Queue(maxsize=cpu_queue_length)
         self.cuda_queue = Queue(maxsize=cuda_queue_length)

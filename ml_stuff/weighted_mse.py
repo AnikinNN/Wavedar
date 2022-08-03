@@ -2,6 +2,8 @@ import warnings
 
 import numpy as np
 import torch
+import torch.nn.functional as F
+from torch.nn.modules.loss import _Loss
 
 
 def get_weights_and_bounds(target: np.ndarray):
@@ -53,3 +55,29 @@ if __name__ == '__main__':
     weights_, bounds_ = get_weights_and_bounds(target_)
     loss_func = WeightedMse(weights_, bounds_)
 
+
+class BNILoss(_Loss):
+    def __init__(self, init_noise_sigma, bucket_centers, bucket_weights):
+        super(BNILoss, self).__init__()
+        self.noise_sigma = torch.nn.Parameter(torch.tensor(init_noise_sigma, device="cuda"))
+        self.bucket_centers = torch.tensor(bucket_centers).cuda()
+        self.bucket_weights = torch.tensor(bucket_weights).cuda()
+
+    def forward(self, pred, target):
+        noise_var = self.noise_sigma ** 2
+        loss = bni_loss(pred, target, noise_var, self.bucket_centers, self.bucket_weights)
+        return loss
+
+
+def bni_loss(pred, target, noise_var, bucket_centers, bucket_weights):
+    mse_term = F.mse_loss(pred, target, reduction='none') / 2 / noise_var
+
+    num_bucket = bucket_centers.shape[0]
+    bucket_center = bucket_centers.unsqueeze(0).repeat(pred.shape[0], 1)
+    bucket_weights = bucket_weights.unsqueeze(0).repeat(pred.shape[0], 1)
+
+    balancing_term = - 0.5 * (pred.expand(-1, num_bucket) - bucket_center).pow(2) / noise_var + bucket_weights.log()
+    balancing_term = torch.logsumexp(balancing_term, dim=-1, keepdim=True)
+    loss = mse_term + balancing_term
+    loss = loss * (2 * noise_var).detach()
+    return loss.mean()

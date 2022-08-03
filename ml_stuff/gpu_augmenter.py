@@ -1,6 +1,7 @@
 import numpy as np
 import torch
 import torchvision
+from torch.cuda import device
 from torchvision import transforms
 from torchvision.transforms import InterpolationMode
 
@@ -25,13 +26,13 @@ class Resizer:
 class Sampler:
     def __init__(self):
         # affine numbers
-        self.rotation_angle = self.sampler(10) + np.random.choice([0, 180])
+        self.rotation_angle = self.sampler(10)  # + np.random.choice([0, 180])
         self.scale = self.sampler(0.05, 1)
-        self.translation_x = self.sampler(0.2)
-        self.translation_y = self.sampler(0.2)
+        self.translation_x = self.sampler(0.05)
+        self.translation_y = self.sampler(0.05)
 
         # flip probabilities
-        self.flip_ud = self.sampler(0.5, 0.5)
+        # self.flip_ud = self.sampler(0.5, 0.5)
         self.flip_lr = self.sampler(0.5, 0.5)
 
         # gaussian noize additive
@@ -44,11 +45,13 @@ class Sampler:
 
 
 class Augmenter:
-    normalizer = transforms.Normalize((0.456,), (0.224,))
+    # normalizer = transforms.Normalize((0,), (1,))
+
+    normalizer = transforms.Normalize((0.383,), (0.210,))
 
     inv_normalizer = transforms.Compose([
-        transforms.Normalize((0.,), (1 / 0.224,)),
-        transforms.Normalize((-0.456,), (1.,)),
+        transforms.Normalize((0.,), (1 / 0.216,)),
+        transforms.Normalize((-0.372,), (1.,)),
     ])
 
     resizer = Resizer()
@@ -57,10 +60,11 @@ class Augmenter:
     def augment(cls, images: torch.Tensor, only_geometry: bool, sampler: Sampler):
         if not only_geometry:
             # add noise
-            # add noize without normalization because it is followed by normalization
+            # add noize without normalization because noize has zero mean
             noise_shape = [int(i * sampler.noise_scale) for i in images.shape[2:]]
-            mean = torch.mean(images, dim=(2, 3))
+            # mean = torch.mean(images, dim=(2, 3))
             std = torch.std(images, dim=(2, 3))
+            mean = torch.zeros_like(std, device=images.get_device())
             noise = cls.get_noise(mean, std * 0.1, noise_shape)
             additive = cls.resizer(noise, images.shape[-2:])
             images = images + additive
@@ -71,16 +75,15 @@ class Augmenter:
                                                sampler.translation_y * min_image_side],
                                               sampler.scale,
                                               [0, 0],
-                                              interpolation=transforms.InterpolationMode.NEAREST)
+                                              interpolation=transforms.InterpolationMode.NEAREST
+                                                    if only_geometry else transforms.InterpolationMode.BILINEAR
+                                              )
 
-        if sampler.flip_ud > 0.5:
-            images = torch.flip(images, dims=[1])
+        # if sampler.flip_ud > 0.5:
+        #     images = torch.flip(images, dims=[2])
         if sampler.flip_lr > 0.5:
-            images = torch.flip(images, dims=[2])
+            images = torch.flip(images, dims=[3])
 
-        if not only_geometry:
-            # normalize
-            images = cls.normalizer(images)
         return images
 
     @classmethod
@@ -88,8 +91,7 @@ class Augmenter:
         sampler = Sampler()
         images = cls.augment(batch.images, False, sampler)
         masks = cls.augment(batch.masks, True, sampler)
-        positional_encoding = cls.augment(batch.positional_encoding, True, sampler)
-        return images, masks, positional_encoding
+        return images, masks
 
     @classmethod
     def call(cls, batch: Batch):

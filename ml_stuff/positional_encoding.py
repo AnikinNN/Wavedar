@@ -12,7 +12,10 @@ class SinusoidalPositionalEmbedding:
 
     @staticmethod
     def get_omega(dimension):
-        return 1 / (1e4 ** (torch.arange(0, 1, 1 / dimension)))
+        if dimension != 0:
+            return 1 / (1e4 ** (torch.arange(0, 1, 1 / dimension)))
+        else:
+            return torch.Tensor()
 
     def encode(self, batch: torch.Tensor):
         """
