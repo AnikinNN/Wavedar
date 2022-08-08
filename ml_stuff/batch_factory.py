@@ -34,7 +34,7 @@ def threaded_batches_feeder(to_kill: ThreadKiller, target_queue: Queue, dataset_
 
 
 def threaded_cuda_feeder(to_kill: ThreadKiller, target_queue: Queue, source_queue: Queue,
-                         cuda_device, to_variable: bool, do_augment: bool, encoder: SinusoidalPositionalEmbedding):
+                         cuda_device, to_variable: bool, do_augment: bool):
     """
     takes batch from source_queue, transforms data to tensors, puts to target_queue until to_kill
     """
@@ -47,7 +47,6 @@ def threaded_cuda_feeder(to_kill: ThreadKiller, target_queue: Queue, source_queu
         batch.images = ToCartesianConverter.__call__(batch.images)
         mask = WaveMask.get_mask(batch.images)
         assert mask is not None
-        positional_encoding = encoder.encode(batch.images)
 
         batch.set_mask(mask)
 
@@ -57,7 +56,6 @@ def threaded_cuda_feeder(to_kill: ThreadKiller, target_queue: Queue, source_queu
         batch.images = Augmenter.normalizer(batch.images)
 
         batch.images = batch.images * batch.masks
-        batch.images = torch.cat((batch.images, positional_encoding), dim=1)
         target_queue.put(batch, block=True)
     print('cuda_feeder_killed')
     return
@@ -129,7 +127,6 @@ class BatchFactory:
                  dataset: WaveDataset,
                  cuda_device,
                  do_augment: bool,
-                 encoder_dimension: int,
                  cpu_queue_length: int = 4,
                  cuda_queue_length: int = 4,
                  preprocess_worker_number: int = 4,
@@ -147,9 +144,6 @@ class BatchFactory:
         self.cuda_feeders = []
         self.preprocess_workers = []
 
-        # create one encoder for all threads
-        encoder = SinusoidalPositionalEmbedding(encoder_dimension)
-
         for _ in range(cuda_feeder_number):
             thr = threading.Thread(target=threaded_cuda_feeder,
                                    args=(self.threads_killer,
@@ -157,8 +151,7 @@ class BatchFactory:
                                          self.cpu_queue,
                                          cuda_device,
                                          to_variable,
-                                         do_augment,
-                                         encoder)
+                                         do_augment)
                                    )
             thr.start()
             self.cuda_feeders.append(thr)

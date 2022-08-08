@@ -8,8 +8,7 @@ import numpy as np
 from torch.utils.tensorboard import SummaryWriter
 import torch
 
-# plt.switch_backend('agg')
-
+from . batch import Batch
 
 class Logger:
     experiment = None
@@ -40,11 +39,28 @@ class Logger:
                 numbers.add(int(directory.split('_')[-1]))
         return max(numbers) + 1 if len(numbers) else 1
 
-    def store_batch_as_image(self, tag, batch: torch.Tensor, global_step=None, inv_normalizer=None):
-        batch = batch.cpu().detach()
-        if inv_normalizer is not None:
-            batch = torch.stack([inv_normalizer(torch.squeeze(i)) for i in torch.split(batch, 1)], dim=0)
-        self.tb_writer.add_images(tag, batch, global_step=global_step)
+    def store_batch_as_image(self, tag, batch: Batch, global_step=None,):
+        waves = batch.significant_wave_height
+        imgs = batch.images.detach().cpu().numpy()
+        fig = plt.figure(figsize=(12, 12))
+        fig.set_tight_layout(tight={'pad': -0.1, })
+        square_size = np.ceil(np.sqrt(imgs.shape[0])).astype(int)
+
+        for i in range(imgs.shape[0]):
+            ax = fig.add_subplot(square_size, square_size, i + 1)
+            im = ax.imshow(imgs[i, 0, :, :], cmap='Blues_r',
+                           # origin='lower'
+                           )
+            ax.set(xticklabels=[], yticklabels=[], xticks=[], yticks=[])
+            ax.text(min(ax.get_xlim()), min(ax.get_ylim()),
+                    f'{waves[i].item():.3f}',
+                    horizontalalignment='left',
+                    verticalalignment='top',
+                    bbox={'pad': 0, 'color': 'white'}
+                    )
+            fig.colorbar(im, ax=ax, orientation='horizontal', pad=0)
+
+        self.tb_writer.add_figure(tag, [fig], global_step)
 
     def store_scatter_hard_mining_weights(self, hard_mining_frame, epoch):
         fig = plt.figure(figsize=[6, 6])
@@ -54,6 +70,32 @@ class Logger:
         ax.grid()
         ax.scatter(x, y, s=1)
         self.tb_writer.add_figure('hard_mining_weights', [fig], epoch)
+
+    def store_target_vs_predicted(self, val_set, epoch):
+        fig = plt.figure() # figsize=[8, 6])
+        ax = fig.add_subplot()
+
+        for cruise in val_set.wave_frame.cruise.unique():
+            for station in val_set.wave_frame.station.unique():
+                selection = (val_set.wave_frame.station == station) & (val_set.wave_frame.cruise == cruise)
+                ax.scatter(val_set.wave_frame[selection].h, val_set.wave_frame[selection].last_predicted,
+                           label=f'{cruise}_{station}',
+                           alpha=0.5,
+                           )
+
+        ax.set_xlabel('true')
+        ax.set_ylabel('predicted')
+        ax.set_title('significant_wave_height, m')
+        ax.grid()
+        x_limit = [val_set.wave_frame.h.min(), val_set.wave_frame.h.max()]
+        ax.plot(x_limit, x_limit, label='y=x')
+
+        mean = [val_set.wave_frame.h.mean()]
+        ax.plot(x_limit, [mean, mean], label='y=target_mean')
+
+        ax.legend(bbox_to_anchor=(1.04, 0.5), loc="center left", borderaxespad=0)
+
+        self.tb_writer.add_figure('target_vs_predicted', [fig], epoch)
 
 
 def make_dir(path):

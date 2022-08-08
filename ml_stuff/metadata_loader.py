@@ -4,6 +4,7 @@ import re
 import warnings
 
 import pandas as pd
+import numpy as np
 from sklearn.model_selection import train_test_split
 
 
@@ -21,6 +22,7 @@ class MetadataLoader:
         self.all_df.sort_values(by="buoy_datetime", inplace=True)
         self.all_df['hard_mining_weight'] = 1.0
         self.all_df['npy_index'] = self.all_df['npy_index'].astype(int)
+        self.all_df['last_predicted'] = np.nan
         self.split(*split)
         if store_path is not None:
             self.store_splits(store_path)

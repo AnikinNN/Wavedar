@@ -14,7 +14,7 @@ from .nn_logging import Logger
 from .sgdr_restarts_warmup import CosineAnnealingWarmupRestarts
 from .batch_factory import BatchFactory
 from .gpu_augmenter import Augmenter
-from .weighted_mse import WeightedMse, get_weights_and_bounds
+from .weighted_mse import WeightedMse, get_weights_and_bounds, BNILoss, BMCLoss
 from .resnet_regressor import ResnetRegressor
 
 
@@ -38,10 +38,9 @@ def train_single_epoch(model: torch.nn.Module,
     for batch_idx in range(per_step_epoch):
         batch = cuda_batches_queue.get(block=True)
 
-        # if batch_idx == 0:
-        #     logger.store_batch_as_image('train_batch', batch.images,
-        #                                 global_step=current_epoch,
-        #                                 inv_normalizer=Augmenter.inv_normalizer)
+        if batch_idx == 0:
+            logger.store_batch_as_image('train_batch', batch,
+                                        global_step=current_epoch)
 
         optimizer.zero_grad()
         data_out = model(batch.images)
@@ -75,6 +74,7 @@ def validate_single_epoch(model: torch.nn.Module,
                           per_step_epoch: int,
                           current_epoch: int,
                           logger: Logger,
+                          val_dataset: WaveDataset
                           ):
     model.eval()
     loss_values = []
@@ -87,16 +87,25 @@ def validate_single_epoch(model: torch.nn.Module,
         with torch.no_grad():
             data_out = model(batch.images)
 
-        # if batch_idx == 0:
-        #     logger.store_batch_as_image('val_batch', batch.images,
-        #                                 global_step=current_epoch,
-        #                                 inv_normalizer=Augmenter.inv_normalizer)
+        if batch_idx == 0:
+            logger.store_batch_as_image('val_batch', batch,
+                                        global_step=current_epoch)
 
         loss = loss_function(data_out, batch.significant_wave_height)
         loss_values.append(loss.item())
+
+        # save predicted to plot predicted(target)
+        predicted = data_out.detach().cpu().numpy().squeeze()
+
+        updater_df = pd.DataFrame({'last_predicted': predicted.tolist()})
+        updater_df.set_index(pd.Index(batch.train_frame_indexes), inplace=True)
+        val_dataset.wave_frame.update(updater_df)
+
         pbar.update()
         pbar.set_postfix({'loss': loss.item(), 'cuda_queue_len': cuda_batches_queue.qsize()})
     pbar.close()
+    # plot predicted(target)
+    logger.store_target_vs_predicted(val_dataset, current_epoch)
 
     return np.mean(loss_values)
 
@@ -139,7 +148,6 @@ def train_model(model: ResnetRegressor,
                 val_dataset: WaveDataset,
                 logger: Logger,
                 cuda_device,
-                encoder_dimension: int,
                 learning_rate=5e-4,
                 static_learning_rate=False,
                 max_epochs=480,
@@ -150,6 +158,9 @@ def train_model(model: ResnetRegressor,
 
                 ):
     mse = MSELoss()
+    # hist, bounds = np.histogram(train_dataset.wave_frame.h.to_numpy(), bins=100,)
+    # bounds = (bounds[:-1] + bounds[1:]) / 2
+    # mse = BMCLoss(1.0, cuda_device)
     optimizer = torch.optim.Adam(model.parameters(), lr=learning_rate)
     # lr_scheduler.step() calls every batch
     if static_learning_rate:
@@ -166,16 +177,18 @@ def train_model(model: ResnetRegressor,
 
     train_batch_factory = BatchFactory(train_dataset,
                                        cuda_device,
-                                       encoder_dimension=encoder_dimension,
                                        do_augment=True,
                                        preprocess_worker_number=4,
-                                       to_variable=True)
+                                       to_variable=True,
+                                       cuda_queue_length=2
+                                       )
     validation_batch_factory = BatchFactory(val_dataset,
                                             cuda_device,
-                                            encoder_dimension=encoder_dimension,
                                             do_augment=False,
                                             preprocess_worker_number=4,
-                                            to_variable=False)
+                                            to_variable=False,
+                                            cuda_queue_length=2
+                                            )
 
     best_val_loss = float('Inf')
     best_val_epoch = -1
@@ -203,7 +216,8 @@ def train_model(model: ResnetRegressor,
                                              validation_batch_factory.cuda_queue,
                                              steps_per_epoch_valid,
                                              current_epoch=epoch,
-                                             logger=logger)
+                                             logger=logger,
+                                             val_dataset=val_dataset)
             logger.tb_writer.add_scalar('val_loss', val_loss, epoch)
             print(f'Validation loss: {val_loss}')
 

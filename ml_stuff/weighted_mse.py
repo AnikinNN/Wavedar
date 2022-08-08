@@ -57,11 +57,11 @@ if __name__ == '__main__':
 
 
 class BNILoss(_Loss):
-    def __init__(self, init_noise_sigma, bucket_centers, bucket_weights):
+    def __init__(self, init_noise_sigma, bucket_centers, bucket_weights, cuda_device):
         super(BNILoss, self).__init__()
-        self.noise_sigma = torch.nn.Parameter(torch.tensor(init_noise_sigma, device="cuda"))
-        self.bucket_centers = torch.tensor(bucket_centers).cuda()
-        self.bucket_weights = torch.tensor(bucket_weights).cuda()
+        self.noise_sigma = torch.nn.Parameter(torch.tensor(init_noise_sigma, device=cuda_device))
+        self.bucket_centers = torch.tensor(bucket_centers, device=cuda_device)
+        self.bucket_weights = torch.tensor(bucket_weights, device=cuda_device)
 
     def forward(self, pred, target):
         noise_var = self.noise_sigma ** 2
@@ -81,3 +81,22 @@ def bni_loss(pred, target, noise_var, bucket_centers, bucket_weights):
     loss = mse_term + balancing_term
     loss = loss * (2 * noise_var).detach()
     return loss.mean()
+
+
+class BMCLoss(_Loss):
+    def __init__(self, init_noise_sigma, cuda_device):
+        super(BMCLoss, self).__init__()
+        self.noise_sigma = torch.nn.Parameter(torch.tensor(init_noise_sigma, device=cuda_device))
+
+    def forward(self, pred, target):
+        noise_var = self.noise_sigma ** 2
+        loss = bmc_loss(pred, target, noise_var)
+        return loss
+
+
+def bmc_loss(pred, target, noise_var):
+    logits = - 0.5 * (pred - target.T).pow(2) / noise_var
+    loss = F.cross_entropy(logits, torch.arange(pred.shape[0], device=pred.get_device()))
+    loss = loss * (2 * noise_var).detach()
+
+    return loss
