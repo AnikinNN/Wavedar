@@ -57,7 +57,7 @@ class Augmenter:
     resizer = Resizer()
 
     @classmethod
-    def augment(cls, images: torch.Tensor, only_geometry: bool, sampler: Sampler):
+    def augment_image(cls, images: torch.Tensor, only_geometry: bool, sampler: Sampler):
         if not only_geometry:
             # add noise
             # add noize without normalization because noize has zero mean
@@ -87,11 +87,16 @@ class Augmenter:
         return images
 
     @classmethod
+    def augment_scalar(cls, scalars: torch.Tensor):
+        return torch.normal(scalars, scalars.std(dim=0).item() * 0.1)
+
+    @classmethod
     def __call__(cls, batch: Batch):
         sampler = Sampler()
-        images = cls.augment(batch.images, False, sampler)
-        masks = cls.augment(batch.masks, True, sampler)
-        return images, masks
+        images = cls.augment_image(batch.images, False, sampler)
+        masks = cls.augment_image(batch.masks, True, sampler)
+        significant_wave_height = cls.augment_scalar(batch.significant_wave_height)
+        return images, masks, significant_wave_height
 
     @classmethod
     def call(cls, batch: Batch):

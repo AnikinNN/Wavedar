@@ -21,30 +21,47 @@ class ResnetRegressor(torch.nn.Module):
 
         # kind of dirty hack, needs as there is no way to pass to ResNet constructor it's self.inplanes variable
         # there is magic numbers 64 and 256 which took from ResNet50 definition
-        self.resnet.layer1[0].conv1 = CoordConv2d(
-            self.encoder_dimension,
+        self.resnet.layer1[0].conv1 = torch.nn.Conv2d(
             first_conv_out, 64, kernel_size=(1, 1), stride=(1, 1), bias=False)
 
-        self.resnet.layer1[0].downsample[0] = CoordConv2d(
-            self.encoder_dimension,
+        self.resnet.layer1[0].downsample[0] = torch.nn.Conv2d(
             first_conv_out, 256, kernel_size=(1, 1), stride=(1, 1), bias=False)
 
-        for layer in (
-                self.resnet.layer1,
-                self.resnet.layer2,
-                self.resnet.layer3,
-                self.resnet.layer4,):
-            for bottleneck in layer:
-                for conv_name in ('conv1', 'conv2', 'conv3'):
-                    conv = bottleneck.__getattr__(conv_name)
+        # # change all Conv2d to CoordConv2d
+        # for layer in (
+        #         self.resnet.layer1,
+        #         self.resnet.layer2,
+        #         self.resnet.layer3,
+        #         self.resnet.layer4,):
+        #     for bottleneck in layer:
+        #         for conv_name in ('conv1', 'conv2', 'conv3'):
+        #             conv = bottleneck.__getattr__(conv_name)
+        #
+        #             if isinstance(conv, torch.nn.Conv2d):
+        #                 # in_channels, out_channels, kernel_size, stride=1, padding=0, dilation=1, groups=1, bias=True, padding_mode='zeros', device=None, dtype=None
+        #                 bottleneck.__setattr__(conv_name, CoordConv2d(
+        #                     self.encoder_dimension,
+        #                     conv.in_channels, conv.out_channels,
+        #                     kernel_size=conv.kernel_size, stride=conv.stride, padding=conv.padding,
+        #                     dilation=conv.dilation, groups=conv.groups, bias=conv.bias, padding_mode=conv.padding_mode))
 
-                    if isinstance(conv, torch.nn.Conv2d):
-                        # in_channels, out_channels, kernel_size, stride=1, padding=0, dilation=1, groups=1, bias=True, padding_mode='zeros', device=None, dtype=None
-                        bottleneck.__setattr__(conv_name, CoordConv2d(
-                            self.encoder_dimension,
-                            conv.in_channels, conv.out_channels,
-                            kernel_size=conv.kernel_size, stride=conv.stride, padding=conv.padding,
-                            dilation=conv.dilation, groups=conv.groups, bias=conv.bias, padding_mode=conv.padding_mode))
+        # insert CoordConv2d between ResNet Bottleneck blocks
+        for layer_str in (
+                    'layer1',
+                    'layer2',
+                    'layer3',
+                    'layer4',):
+            original_layer = self.resnet.__getattr__(layer_str)
+            new_layer = torch.nn.Sequential()
+            for bottleneck in original_layer:
+                new_layer.append(bottleneck)
+
+                new_layer.append(CoordConv2d(
+                    self.encoder_dimension,
+                    bottleneck.conv3.out_channels, bottleneck.conv3.out_channels, kernel_size=3, stride=1, padding=1,
+                ))
+
+            self.resnet.__setattr__(layer_str, new_layer)
 
         self.resnet.fc = torch.nn.Identity()
         self.set_train_convolutional_part(False)

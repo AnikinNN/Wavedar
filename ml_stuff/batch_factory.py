@@ -51,7 +51,8 @@ def threaded_cuda_feeder(to_kill: ThreadKiller, target_queue: Queue, source_queu
         batch.set_mask(mask)
 
         if do_augment:
-            batch.images, batch.masks = Augmenter.call(batch)
+            batch.images, batch.masks, batch.significant_wave_height = \
+                Augmenter.call(batch)
 
         batch.images = Augmenter.normalizer(batch.images)
 

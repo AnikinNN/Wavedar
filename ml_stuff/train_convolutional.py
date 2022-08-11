@@ -16,10 +16,11 @@ logger = Logger()
 
 cuda_device = torch.device('cuda:2' if torch.cuda.is_available() else 'cpu')
 
-batch_size = 16
+batch_size = 20
 encoder_dimension = 2
 
-asv50_stations = (2763, 2777, 2792, 2809, 2821, 2833, 2841)
+asv50_stations = (2763, 2771, 2777, 2782, 2792, 2797, 2803, 2809, 2821, 2833, 2841,
+                  2849, 2856, 2863, 2868, 2881, 2885, 2901, 2903, 2913, 2928, 2937, )
 stations = tuple((f'/storage/tartar/suslovai/input_nn/input_nn_ASV50/target_ASV50/{i}_target_meteo.csv',
                   f'/storage/tartar/suslovai/input_nn/input_nn_ASV50/radar_data_ASV50/{i}_full_len.npy')
                  for i in asv50_stations)
