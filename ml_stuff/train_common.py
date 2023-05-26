@@ -14,7 +14,7 @@ from .nn_logging import Logger
 from .sgdr_restarts_warmup import CosineAnnealingWarmupRestarts
 from .batch_factory import BatchFactory
 from .gpu_augmenter import Augmenter
-from .weighted_mse import WeightedMse, get_weights_and_bounds, BNILoss, BMCLoss
+from .weighted_mse import WeightedMse, get_weights_and_bounds, BNILoss, BMCLoss, WeightedMSESavedWeights
 from .resnet_regressor import ResnetRegressor
 
 
@@ -44,7 +44,7 @@ def train_single_epoch(model: torch.nn.Module,
 
         optimizer.zero_grad()
         data_out = model(batch.images)
-        loss = loss_function(data_out, batch.significant_wave_height)
+        loss = loss_function(data_out, batch.significant_wave_height, batch.hard_mining_weights)
         loss_values.append(loss.item())
 
         loss_tb.append(loss.item())
@@ -58,6 +58,8 @@ def train_single_epoch(model: torch.nn.Module,
 
         if lr_scheduler is not None:
             lr_scheduler.step()
+            if lr_scheduler.min_lr == optimizer.param_groups[0]["lr"]:
+                torch.save(model, os.path.join(logger.misc_dir, f'model_min_lr_loss_{loss.item()}.pt'))
         else:
             if not warning_elapsed:
                 warnings.warn('lr_scheduler is None')
@@ -69,7 +71,7 @@ def train_single_epoch(model: torch.nn.Module,
 
 
 def validate_single_epoch(model: torch.nn.Module,
-                          loss_function: torch.nn.Module,
+                          loss_function,#: torch.nn.Module,
                           cuda_batches_queue: Queue,
                           per_step_epoch: int,
                           current_epoch: int,
@@ -78,6 +80,7 @@ def validate_single_epoch(model: torch.nn.Module,
                           ):
     model.eval()
     loss_values = []
+    loss_values1 = []
 
     pbar = tqdm(total=per_step_epoch, ncols=100)
     pbar.set_description(desc='validation')
@@ -91,8 +94,11 @@ def validate_single_epoch(model: torch.nn.Module,
             logger.store_batch_as_image('val_batch', batch,
                                         global_step=current_epoch)
 
-        loss = loss_function(data_out, batch.significant_wave_height)
+        loss = loss_function[0](data_out, batch.significant_wave_height, batch.hard_mining_weights)
+        loss1 = loss_function[1](data_out, batch.significant_wave_height)
+
         loss_values.append(loss.item())
+        loss_values1.append(loss1.item())
 
         # save predicted to plot predicted(target)
         predicted = data_out.detach().cpu().numpy().squeeze()
@@ -107,7 +113,7 @@ def validate_single_epoch(model: torch.nn.Module,
     # plot predicted(target)
     logger.store_target_vs_predicted(val_dataset, current_epoch)
 
-    return np.mean(loss_values)
+    return np.mean(loss_values), np.mean(loss_values1)
 
 
 def calculate_hard_mining_weights(model: torch.nn.Module,
@@ -158,6 +164,7 @@ def train_model(model: ResnetRegressor,
 
                 ):
     mse = MSELoss()
+    wmse = WeightedMSESavedWeights()
     # hist, bounds = np.histogram(train_dataset.wave_frame.h.to_numpy(), bins=100,)
     # bounds = (bounds[:-1] + bounds[1:]) / 2
     # mse = BMCLoss(1.0, cuda_device)
@@ -167,7 +174,7 @@ def train_model(model: ResnetRegressor,
         lr_scheduler = None
     else:
         lr_scheduler = CosineAnnealingWarmupRestarts(optimizer,
-                                                     first_cycle_steps=128 * steps_per_epoch_train,
+                                                     first_cycle_steps=14 * steps_per_epoch_train,  # 128*...?
                                                      cycle_mult=1.5,
                                                      max_lr=1e-4,
                                                      min_lr=5e-7,
@@ -192,6 +199,8 @@ def train_model(model: ResnetRegressor,
 
     best_val_loss = float('Inf')
     best_val_epoch = -1
+    best_val_losses = []
+    best_val_epoches = []
 
     try:
         for epoch in range(max_epochs):
@@ -203,22 +212,26 @@ def train_model(model: ResnetRegressor,
 
             train_loss = train_single_epoch(model,
                                             optimizer,
-                                            mse,
+                                            wmse,
                                             train_batch_factory.cuda_queue,
                                             steps_per_epoch_train,
                                             current_epoch=epoch,
                                             logger=logger,
                                             lr_scheduler=lr_scheduler)
             logger.tb_writer.add_scalar('train_loss_per_epoch', train_loss, epoch)
+            with open(os.path.join(logger.misc_dir, 'train.txt'), 'a') as f:
+                f.write(str(epoch) + ' ' + str(train_loss) + '\n')
 
-            val_loss = validate_single_epoch(model,
-                                             mse,
+            val_loss, val_loss1 = validate_single_epoch(model,
+                                             [wmse, mse],
                                              validation_batch_factory.cuda_queue,
                                              steps_per_epoch_valid,
                                              current_epoch=epoch,
                                              logger=logger,
                                              val_dataset=val_dataset)
             logger.tb_writer.add_scalar('val_loss', val_loss, epoch)
+            with open(os.path.join(logger.misc_dir, 'val.txt'), 'a') as f:
+                f.write(str(epoch) + ' ' + str(val_loss) + ' ' + str(val_loss1) + '\n')
             print(f'Validation loss: {val_loss}')
 
             if best_val_loss > val_loss:
@@ -230,6 +243,8 @@ def train_model(model: ResnetRegressor,
                     os.remove(old_model_path)
                 best_val_loss = val_loss
                 best_val_epoch = epoch
+            if epoch == 13 or epoch == 33 or epoch == max_epochs-1:
+                torch.save(model, os.path.join(logger.misc_dir, f'model_ep{epoch}.pt'))
 
     except KeyboardInterrupt:
         pass

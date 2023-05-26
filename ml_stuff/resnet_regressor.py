@@ -52,7 +52,7 @@ class ResnetRegressor(torch.nn.Module):
                     'layer3',
                     'layer4',):
             original_layer = self.resnet.__getattr__(layer_str)
-            new_layer = torch.nn.Sequential()
+            new_layer = []
             for bottleneck in original_layer:
                 new_layer.append(bottleneck)
 
@@ -60,7 +60,7 @@ class ResnetRegressor(torch.nn.Module):
                     self.encoder_dimension,
                     bottleneck.conv3.out_channels, bottleneck.conv3.out_channels, kernel_size=3, stride=1, padding=1,
                 ))
-
+            new_layer = torch.nn.Sequential(*new_layer)
             self.resnet.__setattr__(layer_str, new_layer)
 
         self.resnet.fc = torch.nn.Identity()

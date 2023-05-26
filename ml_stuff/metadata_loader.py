@@ -9,7 +9,8 @@ from sklearn.model_selection import train_test_split
 
 
 class MetadataLoader:
-    def __init__(self, stations=None, split=(0.80, 0.10, 0.10), store_path=None):
+    def __init__(self, stations=None, split=(0.80, 0.10, 0.10), logger=None, store_path=None, new_split=False,
+                 use_slow_wind=True):
         self.all_df = pd.DataFrame()
         self.train = pd.DataFrame()
         self.validation = pd.DataFrame()
@@ -22,8 +23,17 @@ class MetadataLoader:
         self.all_df.sort_values(by="buoy_datetime", inplace=True)
         self.all_df['hard_mining_weight'] = 1.0
         self.all_df['npy_index'] = self.all_df['npy_index'].astype(int)
+        self.all_df.wind_speed.fillna(self.all_df.wind_speed_wrf, inplace=True)
         self.all_df['last_predicted'] = np.nan
-        self.split(*split)
+        self.save_h_frequency()
+        self.logger = logger
+        # self.split(*split)
+        # self.split_by_stations(*split)
+        slow_wind_threshold = 3
+        if not use_slow_wind:
+            self.all_df = self.all_df.drop(self.all_df[self.all_df['wind_speed'] < slow_wind_threshold].index)
+        self.stratified_split(*split, new_split)
+
         if store_path is not None:
             self.store_splits(store_path)
 
@@ -56,6 +66,15 @@ class MetadataLoader:
     def extend_all(self, appendix):
         self.all_df = pd.concat((self.all_df, appendix), axis=0, ignore_index=True)
 
+    def save_h_frequency(self, bounds=np.arange(0, 5.1, 1)):
+        counts, bins = np.histogram(self.all_df['h'].to_numpy(), bins=bounds)
+        print(counts, 'counts')
+        counts = counts / sum(counts)
+        counts = 1 / counts
+        index_list = np.clip(np.searchsorted(bins, self.all_df['h'].to_numpy()), 1, len(bounds)-1) - 1
+        weights = pd.Series([counts[i] for i in index_list])
+        self.all_df['weight'] = weights
+
     def split(self, train_size, validation_size, test_size):
         assert 0.95 < (train_size + validation_size + test_size) <= 1, \
             'sum of train, validation, test must be less than 1'
@@ -83,8 +102,78 @@ class MetadataLoader:
                          (self.test, 'test')]:
             print(f'{name} len: {df.shape[0]}')
 
+    def stratified_split(self, train_size, validation_size, test_size, new_split):
+        assert 0.95 < (train_size + validation_size + test_size) <= 1, \
+            'sum of train, validation, test must be less than 1'
+        station_means = []
+        df_max = self.all_df['h'].max()
+        for station in self.all_df['station'].unique():
+            # bounds: [start, train_end, val_end, test_end]
+            df = self.all_df[(self.all_df['station'] == station)]
+            m = df['h'].mean()
+            h_class = 5 - np.clip(int(df_max / m), 2, 5)
+            station_means.append([station, h_class])
+        station_means = np.array(station_means)
+        if new_split:
+            train, val_test = train_test_split(station_means, test_size=1-train_size, stratify=station_means[:, 1])
+            val, test = train_test_split(val_test, test_size=test_size/(1-train_size), stratify=val_test[:, 1])
+            train, val, test = train[:, 0], val[:, 0], test[:, 0]
+            self.store_splits_ids('/app/wave/', train, val, test)
+            print(len(train), len(val), len(test), 'len: train, val, test')
+            if self.logger:
+                self.store_splits_ids(self.logger.misc_dir, train, val, test)
+        else:
+            paths = [os.path.join('/app/wave/', i) for i in ['train.npy', 'val.npy', 'test.npy']]
+            print(paths)
+            train, val, test = self.load_split_ids(*paths)
+        self.train = self.all_df[self.all_df['station'].isin(train)]
+        self.validation = self.all_df[self.all_df['station'].isin(val)]
+        self.test = self.all_df[self.all_df['station'].isin(test)]
+
+        for df, name in [(self.all_df, 'overall'),
+                         (self.train, 'train'),
+                         (self.validation, 'validation'),
+                         (self.test, 'test')]:
+            print(f'{name} len: {df.shape[0]}')
+
+    def split_by_stations(self, train_size, validation_size, test_size):
+        stations_list = self.all_df['station'].unique()
+        assert (train_size + validation_size + test_size) == len(stations_list), \
+            'sum of train, validation, test must be equal to stations number'
+
+        self.train = self.all_df[self.all_df['station'].isin(stations_list[:train_size])]
+        self.validation = self.all_df[self.all_df['station'].isin(stations_list[train_size:train_size+validation_size])]
+        self.test = self.all_df[self.all_df['station'].isin(stations_list[train_size+validation_size:])]
+
+        for df, name in [(self.all_df, 'overall'),
+                         (self.train, 'train'),
+                         (self.validation, 'validation'),
+                         (self.test, 'test')]:
+            print(f'{name} len: {df.shape[0]}')
+
     def store_splits(self, path):
         for df, name in [(self.train, 'train'),
                          (self.validation, 'validation'),
                          (self.test, 'test')]:
             df.to_csv(os.path.join(path, f'subset_{name}.csv'))
+
+    def store_splits_ids(self, path, train, val, test):
+        np.save(os.path.join(path, 'train.npy'), train)
+        np.save(os.path.join(path, 'val.npy'), val)
+        np.save(os.path.join(path, 'test.npy'), test)
+    def load_split_ids(self, train_path, val_path, test_path):
+        return np.load(train_path), np.load(val_path), np.load(test_path)
+
+    def load_by_ids(self, train_path, val_path, test_path):
+        train = np.load(train_path)
+        val = np.load(val_path)
+        test = np.load(val_path)
+        self.train = self.all_df[self.all_df['station'].isin(train[:, 0])]
+        self.validation = self.all_df[self.all_df['station'].isin(val[:, 0])]
+        self.test = self.all_df[self.all_df['station'].isin(test[:, 0])]
+        self.store_splits_ids(train, val, test)
+        for df, name in [(self.all_df, 'overall'),
+                         (self.train, 'train'),
+                         (self.validation, 'validation'),
+                         (self.test, 'test')]:
+            print(f'{name} len: {df.shape[0]}')

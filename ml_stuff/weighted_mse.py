@@ -43,6 +43,14 @@ class WeightedMse:
         return self.weights[weight_index]
 
 
+class WeightedMSESavedWeights:
+    def __call__(self, predicted, target, weights):
+        return self.weighted_mse_loss(predicted, target, weights)
+
+    def weighted_mse_loss(self, predicted: torch.Tensor, target: torch.Tensor, weights: torch.Tensor):
+        return (torch.square(predicted - target) * weights).sum()/weights.sum()
+
+
 if __name__ == '__main__':
     # weights_ = np.arange(20, 25, 1)
     # bounds_ = np.arange(10, 14, 1)

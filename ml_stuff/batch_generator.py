@@ -43,7 +43,8 @@ class WaveDataset:
         image = self.get_image(index)
         significant_wave_height = self.wave_frame.iloc[index]['h']
         row_id = self.wave_frame.iloc[index].name
-        hard_mining_weight = self.wave_frame.iloc[index]['hard_mining_weight']
+        # hard_mining_weight = self.wave_frame.iloc[index]['hard_mining_weight']
+        hard_mining_weight = self.wave_frame.iloc[index]['weight']
 
         return image, significant_wave_height, hard_mining_weight, row_id
 
