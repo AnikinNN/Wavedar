@@ -48,6 +48,7 @@ class MetadataLoader:
     def load_data(self, stations):
         for csv, npy in stations:
             df = pd.read_csv(csv, sep=';')
+            df.dropna(subset=['npy_index'], inplace=True)
             df['npy_path'] = npy
             self.extend_all(df)
             self.npy_paths.append(npy)

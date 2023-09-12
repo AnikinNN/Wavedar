@@ -44,6 +44,7 @@ def train_single_epoch(model: torch.nn.Module,
 
         optimizer.zero_grad()
         data_out = model(batch.images)
+
         loss = loss_function(data_out, batch.significant_wave_height, batch.hard_mining_weights)
         loss_values.append(loss.item())
 

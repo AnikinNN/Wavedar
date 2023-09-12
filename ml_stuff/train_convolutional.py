@@ -42,7 +42,7 @@ targets = []
 radars = []
 for cruise in ['AI57', 'AI58', 'AI63', 'ASV50']:
 # for cruise in ['AI57']:
-    fcsv = find_files(f'/storage/tartar/suslovai/input_nn/input_nn_{cruise}/target_{cruise}/', '*.csv')
+    fcsv = find_files(f'/storage/tartar/suslovai/input_nn/input_nn_{cruise}/target_{cruise}/10_min', '*.csv')
     fnpy = find_files(f'/storage/tartar/suslovai/input_nn/input_nn_{cruise}/radar_data_{cruise}/', '*.npy')
     print(len(fcsv), len(fnpy))
     targets = [*targets, *fcsv]

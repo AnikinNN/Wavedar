@@ -66,6 +66,7 @@ class WaveDataset:
         while True:
             for obj_iloc in self.objects_iloc_generator:
                 image, significant_wave_height, hard_mining_weight, row_id = self.get_data_by_id(obj_iloc)
+                # image in range(0, 255)
 
                 # Concurrent access by multiple threads to the lists below
                 with self.yield_lock:
