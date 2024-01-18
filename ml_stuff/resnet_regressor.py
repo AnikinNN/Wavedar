@@ -48,7 +48,9 @@ class ResnetRegressor(torch.nn.Module):
                 new_layer = torch.nn.Sequential(*new_layer)
                 self.resnet.__setattr__(layer_str, new_layer)
         else:
+            self.convert_relu_to_mish(self.resnet)
             self.resnet.conv1 = torch.nn.Conv2d(1, first_conv_out, kernel_size=7, stride=2, padding=3, bias=False)
+
 
         self.resnet.fc = torch.nn.Identity()
         self.set_train_convolutional_part(True)
@@ -75,7 +77,12 @@ class ResnetRegressor(torch.nn.Module):
         for param in self.resnet.parameters():
             param.requires_grad = value
 
-
+    def convert_relu_to_mish(self, model):
+        for child_name, child in model.named_children():
+            if isinstance(child, nn.ReLU):
+                setattr(model, child_name, nn.Mish())
+            else:
+                self.convert_relu_to_mish(child)
 class CoordConv2d(torch.nn.Module):
     def __init__(self, encoder_dimension: int, *args, **kwargs):
         super().__init__()

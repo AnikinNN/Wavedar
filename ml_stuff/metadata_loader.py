@@ -23,7 +23,7 @@ class MetadataLoader:
         self.all_df.sort_values(by="buoy_datetime", inplace=True)
         self.all_df['hard_mining_weight'] = 1.0
         self.all_df['npy_index'] = self.all_df['npy_index'].astype(int)
-        self.all_df.wind_speed.fillna(self.all_df.wind_speed_airmar, inplace=True)
+        # self.all_df.wind_speed.fillna(self.all_df.wind_speed_airmar, inplace=True)
         self.all_df['last_predicted'] = np.nan
         self.save_h_frequency()
         self.logger = logger

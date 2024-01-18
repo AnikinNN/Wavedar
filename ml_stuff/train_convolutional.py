@@ -41,7 +41,6 @@ def find_files(directory, pattern):
 targets = []
 radars = []
 for cruise in ['AI57', 'AI58', 'AI63', 'ASV50']:
-# for cruise in ['AI57']:
     fcsv = find_files(f'/storage/tartar/suslovai/input_nn/input_nn_{cruise}/target_{cruise}/10_min', '*.csv')
     fnpy = find_files(f'/storage/tartar/suslovai/input_nn/input_nn_{cruise}/radar_data_{cruise}/', '*.npy')
     print(len(fcsv), len(fnpy))
@@ -56,7 +55,7 @@ with open('stations.txt', 'a') as f:
         f.write(str(item[0]) + ' ' + str(item[1]) + '\n')
     print('Done')
 metadata_loader = MetadataLoader(stations=inputs, split=(0.7, 0.15, 0.15), logger=logger, new_split=True,
-                                 use_slow_wind=False)
+                                 use_slow_wind=True)
 # metadata_loader = MetadataLoader(stations=inputs, split=(0.85, 0.05, 0.1))
 
 # # move 2792 2777 to validation
@@ -74,10 +73,15 @@ val_set = WaveDataset(wave_frame=metadata_loader.validation,
                       batch_size=batch_size,
                       do_shuffle=True)
 
-modified_resnet = ResnetRegressor(encoder_dimension=encoder_dimension, first_conv_out=64)
+modified_resnet = ResnetRegressor(encoder_dimension=encoder_dimension, first_conv_out=64, use_pos_encoding=True)
 modified_resnet.set_train_convolutional_part(True)
 modified_resnet.to(cuda_device)
-
+print(modified_resnet)
+with open(os.path.join(logger.misc_dir, 'description.txt'), 'a') as f:
+    f.write('Нейросеть с Mish вместо relu, '
+            'на новых данных с обновленным алгоритмом'
+            ' поиска нужного сектора'
+            'С позиционным кодированием со всеми данными' + '\n')
 train_model(modified_resnet,
             train_dataset=train_set,
             val_dataset=val_set,

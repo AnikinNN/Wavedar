@@ -59,8 +59,6 @@ def train_single_epoch(model: torch.nn.Module,
 
         if lr_scheduler is not None:
             lr_scheduler.step()
-            if lr_scheduler.min_lr == optimizer.param_groups[0]["lr"]:
-                torch.save(model, os.path.join(logger.misc_dir, f'model_min_lr_loss_{loss.item()}.pt'))
         else:
             if not warning_elapsed:
                 warnings.warn('lr_scheduler is None')
