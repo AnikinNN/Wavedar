@@ -59,7 +59,7 @@ class ResnetRegressor(torch.nn.Module):
         # self.resnet.layer4[2].conv3.out_channels
         self.widths = [2048]
         self.widths.extend(widths)
-        self.widths.append(1)
+        self.widths.append(2)
 
         layers = []
         for i in range(len(self.widths) - 1):

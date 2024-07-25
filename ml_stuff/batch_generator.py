@@ -31,6 +31,9 @@ class WaveDataset:
 
         self.significant_wave_height_mean = wave_frame.h.mean()
         self.significant_wave_height_std = wave_frame.h.std()
+        print('========================')
+        print(wave_frame.h.mean(), wave_frame.h.std())
+        print(wave_frame.t.mean(), wave_frame.t.std())
 
     def __len__(self):
         return self.wave_frame.shape[0]
@@ -42,11 +45,12 @@ class WaveDataset:
     def get_data_by_id(self, index):
         image = self.get_image(index)
         significant_wave_height = self.wave_frame.iloc[index]['h']
+        wave_period = self.wave_frame.iloc[index]['t']
         row_id = self.wave_frame.iloc[index].name
         # hard_mining_weight = self.wave_frame.iloc[index]['hard_mining_weight']
         hard_mining_weight = self.wave_frame.iloc[index]['weight']
 
-        return image, significant_wave_height, hard_mining_weight, row_id
+        return image, significant_wave_height, wave_period, hard_mining_weight, row_id
 
     def get_image(self, index):
         npy = self.get_npy(index)
@@ -65,13 +69,13 @@ class WaveDataset:
     def __iter__(self):
         while True:
             for obj_iloc in self.objects_iloc_generator:
-                image, significant_wave_height, hard_mining_weight, row_id = self.get_data_by_id(obj_iloc)
+                image, significant_wave_height, wave_period, hard_mining_weight, row_id = self.get_data_by_id(obj_iloc)
                 # image in range(0, 255)
 
                 # Concurrent access by multiple threads to the lists below
                 with self.yield_lock:
                     if len(self.batch) < self.batch_size:
-                        self.batch.append(image, significant_wave_height, hard_mining_weight, row_id)
+                        self.batch.append(image, significant_wave_height, wave_period, hard_mining_weight, row_id)
 
                     if len(self.batch) >= self.batch_size:
                         yield self.batch

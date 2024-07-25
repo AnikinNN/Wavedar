@@ -45,7 +45,14 @@ def train_single_epoch(model: torch.nn.Module,
         optimizer.zero_grad()
         data_out = model(batch.images)
 
-        loss = loss_function(data_out, batch.significant_wave_height, batch.hard_mining_weights)
+        target = torch.cat([batch.significant_wave_height, batch.wave_period], -1)
+        print()
+        print(target.mean(0), 'target mean')
+        print(data_out.mean(0), 'data out mean')
+        print(target.shape, 'target shape')
+        print(data_out.shape, 'data out shape')
+        print(batch.hard_mining_weights.shape, 'batch.hard_mining_weights shape')
+        loss = loss_function(data_out, target, batch.hard_mining_weights)
         loss_values.append(loss.item())
 
         loss_tb.append(loss.item())
@@ -93,8 +100,9 @@ def validate_single_epoch(model: torch.nn.Module,
             logger.store_batch_as_image('val_batch', batch,
                                         global_step=current_epoch)
 
-        loss = loss_function[0](data_out, batch.significant_wave_height, batch.hard_mining_weights)
-        loss1 = loss_function[1](data_out, batch.significant_wave_height)
+        target = torch.cat([batch.significant_wave_height, batch.wave_period], -1)
+        loss = loss_function[0](data_out, target, batch.hard_mining_weights)
+        loss1 = loss_function[1](data_out, target)
 
         loss_values.append(loss.item())
         loss_values1.append(loss1.item())
@@ -110,7 +118,7 @@ def validate_single_epoch(model: torch.nn.Module,
         pbar.set_postfix({'loss': loss.item(), 'cuda_queue_len': cuda_batches_queue.qsize()})
     pbar.close()
     # plot predicted(target)
-    logger.store_target_vs_predicted(val_dataset, current_epoch)
+    # logger.store_target_vs_predicted(val_dataset, current_epoch)
 
     return np.mean(loss_values), np.mean(loss_values1)
 

@@ -51,7 +51,7 @@ def threaded_cuda_feeder(to_kill: ThreadKiller, target_queue: Queue, source_queu
         batch.set_mask(mask)
 
         if do_augment:
-            batch.images, batch.masks, batch.significant_wave_height = \
+            batch.images, batch.masks, batch.significant_wave_height, batch.wave_period = \
                 Augmenter.call(batch)
 
         batch.images = Augmenter.normalizer(batch.images)
@@ -92,7 +92,7 @@ class ToCartesianConverter:
     @classmethod
     def __call__(cls, tensor_data: torch.Tensor):
         grid = cls.grid.expand(tensor_data.shape[0], -1, -1, -1).to(tensor_data.get_device()).float()
-        res = torch.nn.functional.grid_sample(tensor_data, grid, padding_mode="zeros", mode='bilinear')
+        res = torch.nn.functional.grid_sample(tensor_data, grid, padding_mode="zeros", mode='bilinear', align_corners=True)
         return torch.rot90(res, 1, [2, 3])
 
 
@@ -121,6 +121,10 @@ class WaveMask:
                 cls.cached_mask = tensor_mask
                 print(f'Mask with shape {cls.cached_mask.shape} cached')
                 return cls.cached_mask
+
+    @classmethod
+    def __call__(cls, images):
+        return cls.get_mask(images)
 
 
 class BatchFactory:

@@ -78,7 +78,7 @@ class Logger:
         for cruise in val_set.wave_frame.cruise.unique():
             for station in val_set.wave_frame.station.unique():
                 selection = (val_set.wave_frame.station == station) & (val_set.wave_frame.cruise == cruise)
-                ax.scatter(val_set.wave_frame[selection].h, val_set.wave_frame[selection].last_predicted,
+                ax.scatter(val_set.wave_frame[selection].h, val_set.wave_frame[selection].last_predicted[:, 0],
                            label=f'{cruise}_{station}',
                            alpha=0.5,
                            )

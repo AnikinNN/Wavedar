@@ -56,7 +56,6 @@ with open('stations.txt', 'a') as f:
     print('Done')
 metadata_loader = MetadataLoader(stations=inputs, split=(0.7, 0.15, 0.15), logger=logger, new_split=True,
                                  use_slow_wind=True)
-# metadata_loader = MetadataLoader(stations=inputs, split=(0.85, 0.05, 0.1))
 
 # # move 2792 2777 to validation
 # selection = metadata_loader.train.station.isin([2792, 2777])
@@ -73,10 +72,9 @@ val_set = WaveDataset(wave_frame=metadata_loader.validation,
                       batch_size=batch_size,
                       do_shuffle=True)
 
-modified_resnet = ResnetRegressor(encoder_dimension=encoder_dimension, first_conv_out=64, use_pos_encoding=True)
+modified_resnet = ResnetRegressor(encoder_dimension=encoder_dimension, first_conv_out=64, use_pos_encoding=False)
 modified_resnet.set_train_convolutional_part(True)
 modified_resnet.to(cuda_device)
-print(modified_resnet)
 with open(os.path.join(logger.misc_dir, 'description.txt'), 'a') as f:
     f.write('Нейросеть с Mish вместо relu, '
             'на новых данных с обновленным алгоритмом'

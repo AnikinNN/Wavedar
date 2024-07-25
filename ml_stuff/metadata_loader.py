@@ -34,10 +34,11 @@ class MetadataLoader:
         if not use_slow_wind:
             self.all_df = self.all_df.drop(self.all_df[self.all_df['wind_speed'] < slow_wind_threshold].index)
             self.all_df = self.all_df.drop(self.all_df[self.all_df['h'] < low_h_threshold].index)
-        self.stratified_split(*split, new_split)
 
-        if store_path is not None:
-            self.store_splits(store_path)
+        self.store_path = store_path
+        self.stratified_split(*split, new_split)
+        # if store_path is not None:
+        #     self.store_splits(store_path)
 
     @classmethod
     def init_using_data_dir(cls, data_dir, split=(0.80, 0.10, 0.10), store_path=None):
@@ -121,12 +122,11 @@ class MetadataLoader:
             train, val_test = train_test_split(station_means, test_size=1-train_size, stratify=station_means[:, 1])
             val, test = train_test_split(val_test, test_size=test_size/(1-train_size), stratify=val_test[:, 1])
             train, val, test = train[:, 0], val[:, 0], test[:, 0]
-            self.store_splits_ids('/app/wave/', train, val, test)
             print(len(train), len(val), len(test), 'len: train, val, test')
             if self.logger:
                 self.store_splits_ids(self.logger.misc_dir, train, val, test)
         else:
-            paths = [os.path.join('/app/wave/', i) for i in ['train.npy', 'val.npy', 'test.npy']]
+            paths = [os.path.join(self.store_path, i) for i in ['train.npy', 'val.npy', 'test.npy']]
             print(paths)
             train, val, test = self.load_split_ids(*paths)
         self.train = self.all_df[self.all_df['station'].isin(train)]
@@ -164,6 +164,7 @@ class MetadataLoader:
         np.save(os.path.join(path, 'train.npy'), train)
         np.save(os.path.join(path, 'val.npy'), val)
         np.save(os.path.join(path, 'test.npy'), test)
+
     def load_split_ids(self, train_path, val_path, test_path):
         return np.load(train_path), np.load(val_path), np.load(test_path)
 

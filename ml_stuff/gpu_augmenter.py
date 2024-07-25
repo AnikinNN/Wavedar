@@ -96,7 +96,8 @@ class Augmenter:
         images = cls.augment_image(batch.images, False, sampler)
         masks = cls.augment_image(batch.masks, True, sampler)
         significant_wave_height = cls.augment_scalar(batch.significant_wave_height)
-        return images, masks, significant_wave_height
+        wave_period = cls.augment_scalar(batch.wave_period)
+        return images, masks, significant_wave_height, wave_period
 
     @classmethod
     def call(cls, batch: Batch):
